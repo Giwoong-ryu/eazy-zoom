@@ -26,7 +26,7 @@ class HotkeyManager:
 
     def start(self) -> None:
         hotkeys = {
-            "<ctrl>+1": self._on_toggle,
+            "<alt>+z": self._on_toggle,
             "<ctrl>+]": self._on_capture_shrink,
             "<ctrl>+[": self._on_capture_expand,
             "<ctrl>+2": self._on_edit_region,

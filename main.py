@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication
 from config import Config
 from core.capture import ScreenCapture
 from core.overlay import OverlayWindow
+from core.region_editor import CaptureRegionEditor
 from input.hotkey import HotkeyManager
 from ui.guide_overlay import GuideOverlay
 from ui.settings_dialog import SettingsDialog
@@ -36,6 +37,11 @@ class LectureZoomApp:
         self._hotkey.signals.toggle_zoom.connect(self._toggle)
         self._hotkey.signals.escape.connect(self._deactivate)
         self._hotkey.signals.show_guide.connect(self._show_guide)
+        self._hotkey.signals.capture_shrink.connect(self._capture_shrink)
+        self._hotkey.signals.capture_expand.connect(self._capture_expand)
+        self._hotkey.signals.edit_region.connect(self._edit_capture_region)
+
+        self._region_editor: CaptureRegionEditor | None = None
 
         self._panel = ControlPanel()
         self._panel.toggle_requested.connect(self._toggle)
@@ -104,6 +110,32 @@ class LectureZoomApp:
         self._config.set("overlay_w", self._overlay.width())
         self._config.set("overlay_h", self._overlay.height())
         self._config.save()
+
+    def _capture_shrink(self) -> None:
+        self._overlay.adjust_capture_region(-50)
+
+    def _capture_expand(self) -> None:
+        self._overlay.adjust_capture_region(50)
+
+    def _edit_capture_region(self) -> None:
+        if self._region_editor is not None and self._region_editor.isVisible():
+            self._region_editor.region_confirmed.emit(
+                self._region_editor._rw, self._region_editor._rh,
+            )
+            self._region_editor.close()
+            return
+        screen_w, screen_h = self._capture.screen_size()
+        self._region_editor = CaptureRegionEditor(screen_w, screen_h)
+        self._region_editor.set_region(
+            self._overlay._base_cap_w,
+            self._overlay._base_cap_h,
+        )
+        self._region_editor.region_confirmed.connect(self._apply_capture_region)
+        self._region_editor.show()
+
+    def _apply_capture_region(self, w: int, h: int) -> None:
+        self._overlay._base_cap_w = w
+        self._overlay._base_cap_h = h
 
     def _show_guide(self) -> None:
         screen_w, screen_h = self._capture.screen_size()

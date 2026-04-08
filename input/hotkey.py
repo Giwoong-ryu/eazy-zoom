@@ -11,6 +11,9 @@ class HotkeySignals(QObject):
     toggle_zoom = pyqtSignal()
     escape = pyqtSignal()
     show_guide = pyqtSignal()
+    capture_shrink = pyqtSignal()
+    capture_expand = pyqtSignal()
+    edit_region = pyqtSignal()
 
 
 class HotkeyManager:
@@ -24,6 +27,9 @@ class HotkeyManager:
     def start(self) -> None:
         hotkeys = {
             "<ctrl>+1": self._on_toggle,
+            "<ctrl>+]": self._on_capture_shrink,
+            "<ctrl>+[": self._on_capture_expand,
+            "<ctrl>+2": self._on_edit_region,
         }
         self._listener = keyboard.GlobalHotKeys(hotkeys)
         self._listener.daemon = True
@@ -35,6 +41,15 @@ class HotkeyManager:
 
     def _on_toggle(self) -> None:
         self.signals.toggle_zoom.emit()
+
+    def _on_capture_shrink(self) -> None:
+        self.signals.capture_shrink.emit()
+
+    def _on_capture_expand(self) -> None:
+        self.signals.capture_expand.emit()
+
+    def _on_edit_region(self) -> None:
+        self.signals.edit_region.emit()
 
     def _on_key_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
         try:

@@ -53,6 +53,11 @@ class OverlayWindow(QWidget):
         self._lens_w = int(screen_w * lens_w_ratio)
         self._lens_h = int(screen_h * lens_h_ratio)
 
+        # Base capture region size (independent of viewer window size)
+        # This defines the "real screen area" that gets captured at zoom=1x
+        self._base_cap_w = self._lens_w
+        self._base_cap_h = self._lens_h
+
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -117,6 +122,12 @@ class OverlayWindow(QWidget):
         self._renderer.set_cursor_shape(cursor_style)
         self._renderer.set_zoom_level(zoom_level, animate=False)
 
+    def adjust_capture_region(self, delta: int) -> None:
+        """Adjust base capture region size. Negative = smaller region (more zoom)."""
+        screen_w, screen_h = self._capture.screen_size()
+        self._base_cap_w = max(200, min(screen_w, self._base_cap_w + delta))
+        self._base_cap_h = max(150, min(screen_h, self._base_cap_h + delta))
+
     def set_zoom(self, level: float, animate: bool = True) -> None:
         level = max(self._zoom_min, min(self._zoom_max, level))
         self._zoom = level
@@ -148,8 +159,9 @@ class OverlayWindow(QWidget):
 
         w = self.width()
         h = self.height()
-        cap_w = int(w / self._zoom)
-        cap_h = int(h / self._zoom)
+        # Capture region is based on fixed base size, NOT viewer window size
+        cap_w = int(self._base_cap_w / self._zoom)
+        cap_h = int(self._base_cap_h / self._zoom)
 
         if ctrl_held and not self._frozen:
             # freeze: lock capture region, allow cursor to move inside it
@@ -198,11 +210,27 @@ class OverlayWindow(QWidget):
             self._renderer.set_image(image)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        delta = event.angleDelta().y()
-        if delta > 0:
-            self.set_zoom(self._zoom + self._zoom_step)
-        elif delta < 0:
-            self.set_zoom(self._zoom - self._zoom_step)
+        modifiers = event.modifiers()
+
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            # Shift+scroll: adjust capture region size
+            # Windows converts Shift+scroll to horizontal, so check x() too
+            delta = event.angleDelta().x() or event.angleDelta().y()
+            step = 50
+            if delta > 0:
+                self._base_cap_w = max(200, self._base_cap_w - step)
+                self._base_cap_h = max(150, self._base_cap_h - step)
+            elif delta < 0:
+                screen_w, screen_h = self._capture.screen_size()
+                self._base_cap_w = min(screen_w, self._base_cap_w + step)
+                self._base_cap_h = min(screen_h, self._base_cap_h + step)
+        else:
+            # Normal scroll: adjust zoom level
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.set_zoom(self._zoom + self._zoom_step)
+            elif delta < 0:
+                self.set_zoom(self._zoom - self._zoom_step)
         event.accept()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -218,8 +246,20 @@ class OverlayWindow(QWidget):
                 self._drag_offset = event.globalPosition().toPoint() - self.pos()
             event.accept()
 
+    def _cursor_for_edge(self, edge: int) -> Qt.CursorShape:
+        if edge in (1, 2):
+            return Qt.CursorShape.SizeHorCursor
+        if edge in (4, 8):
+            return Qt.CursorShape.SizeVerCursor
+        if edge in (5, 10):
+            return Qt.CursorShape.SizeFDiagCursor
+        if edge in (6, 9):
+            return Qt.CursorShape.SizeBDiagCursor
+        return Qt.CursorShape.ArrowCursor
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._resizing:
+            self.setCursor(self._cursor_for_edge(self._resize_edge))
             delta = event.globalPosition().toPoint() - self._drag_offset
             geo = self._resize_origin
             x, y, w, h = geo.x(), geo.y(), geo.width(), geo.height()
@@ -238,20 +278,12 @@ class OverlayWindow(QWidget):
             self.setGeometry(x, y, w, h)
             event.accept()
         elif self._dragging:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
             self.move(event.globalPosition().toPoint() - self._drag_offset)
             event.accept()
         else:
             edge = self._edge_at(event.pos())
-            if edge in (1, 2):
-                self.setCursor(Qt.CursorShape.SizeHorCursor)
-            elif edge in (4, 8):
-                self.setCursor(Qt.CursorShape.SizeVerCursor)
-            elif edge in (5, 10):  # top-left, bottom-right
-                self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-            elif edge in (6, 9):  # top-right, bottom-left
-                self.setCursor(Qt.CursorShape.SizeBDiagCursor)
-            else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.setCursor(self._cursor_for_edge(edge))
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
